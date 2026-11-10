@@ -18,13 +18,67 @@ const sp = new URLSearchParams(location.search);
 
 const cheerpjWebRoot = '/app'+location.pathname.replace(/\/[^/]*$/,'');
 
-let isMobile = sp.get('mobile');
+const mobileParam = sp.get('mobile');
+const touchDevice = window.matchMedia('(pointer: coarse) and (hover: none)').matches
+    || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
+let isMobile = mobileParam !== null
+    ? !['0', 'false', 'no'].includes(mobileParam.toLowerCase())
+    : touchDevice;
 
 let display = null;
 let screenCtx = null;
 
-let fractionScale = sp.get('fractionScale') || (localStorage && localStorage.getItem("pl.zb3.freej2me.fractionScale") === "true");
+// localStorage throws when storage is blocked (eg. Safari with cookies
+// disabled, private mode, some webviews). An uncaught error here aborts this
+// module and leaves the page stuck on "Loading..." forever.
+function readStoredFractionScale() {
+    try {
+        const stored = localStorage.getItem("pl.zb3.freej2me.fractionScale");
+        if (stored !== null) return stored === "true";
+    } catch (e) {
+        // storage unavailable, fall back to the default
+    }
+
+    return true;
+}
+
+function storeFractionScale(value) {
+    try {
+        localStorage.setItem("pl.zb3.freej2me.fractionScale", value);
+    } catch (e) {
+        // storage unavailable, ignore
+    }
+}
+
+let fractionScale = sp.has('fractionScale')
+    ? !['0', 'false', 'no'].includes(sp.get('fractionScale').toLowerCase())
+    : readStoredFractionScale();
 let scaleSet = false;
+
+// currentCSSZoom is Chrome-only, so Safari and Firefox need the computed value.
+function getCssZoom() {
+    const zoom = display.currentCSSZoom ?? parseFloat(getComputedStyle(display).zoom);
+    return zoom > 0 ? zoom : 1;
+}
+
+// Uses client coordinates and the element rect, which both account for zoom.
+function pointerPosition(clientX, clientY) {
+    const rect = display.getBoundingClientRect();
+    const zoom = getCssZoom();
+
+    return {
+        x: (clientX - rect.left) / zoom | 0,
+        y: (clientY - rect.top) / zoom | 0,
+    };
+}
+
+function toggleFullscreen() {
+    if (document.fullscreenElement) {
+        document.exitFullscreen?.();
+    } else if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+    }
+}
 
 const keyRepeatManager = new KeyRepeatManager();
 
@@ -92,7 +146,7 @@ function setListeners() {
         if (kind === 'click') {
             if (key === 'Maximize') {
                 fractionScale = !fractionScale;
-                localStorage && localStorage.setItem("pl.zb3.freej2me.fractionScale", fractionScale);
+                storeFractionScale(fractionScale);
                 autoscale();
             }
         } else if (codeMap[key]) {
@@ -110,8 +164,7 @@ function setListeners() {
 
         evtQueue.queueEvent({
             kind: 'pointerpressed',
-            x: e.offsetX / display.currentCSSZoom | 0,
-            y: e.offsetY / display.currentCSSZoom | 0,
+            ...pointerPosition(e.clientX, e.clientY),
         });
 
         mouseDown = true;
@@ -125,8 +178,7 @@ function setListeners() {
 
         evtQueue.queueEvent({
             kind: 'pointerdragged',
-            x: e.offsetX / display.currentCSSZoom | 0,
-            y: e.offsetY / display.currentCSSZoom | 0,
+            ...pointerPosition(e.clientX, e.clientY),
         });
 
         e.preventDefault();
@@ -140,8 +192,7 @@ function setListeners() {
 
         evtQueue.queueEvent({
             kind: 'pointerreleased',
-            x: (e.pageX - display.offsetLeft) / display.currentCSSZoom | 0,
-            y: (e.pageY - display.offsetTop) / display.currentCSSZoom | 0,
+            ...pointerPosition(e.clientX, e.clientY),
         });
 
         e.preventDefault();
@@ -154,8 +205,7 @@ function setListeners() {
 
         evtQueue.queueEvent({
             kind: 'pointerpressed',
-            x: (e.changedTouches[0].pageX - display.offsetLeft) / display.currentCSSZoom | 0,
-            y: (e.changedTouches[0].pageY - display.offsetTop) / display.currentCSSZoom | 0,
+            ...pointerPosition(e.changedTouches[0].clientX, e.changedTouches[0].clientY),
         });
 
         e.preventDefault();
@@ -166,8 +216,7 @@ function setListeners() {
 
         evtQueue.queueEvent({
             kind: 'pointerdragged',
-            x: (e.changedTouches[0].pageX - display.offsetLeft) / display.currentCSSZoom | 0,
-            y: (e.changedTouches[0].pageY - display.offsetTop) / display.currentCSSZoom | 0,
+            ...pointerPosition(e.changedTouches[0].clientX, e.changedTouches[0].clientY),
         });
 
         e.preventDefault();
@@ -178,8 +227,7 @@ function setListeners() {
 
         evtQueue.queueEvent({
             kind: 'pointerreleased',
-            x: (e.changedTouches[0].pageX - display.offsetLeft) / display.currentCSSZoom | 0,
-            y: (e.changedTouches[0].pageY - display.offsetTop) / display.currentCSSZoom | 0,
+            ...pointerPosition(e.changedTouches[0].clientX, e.changedTouches[0].clientY),
         });
 
         e.preventDefault();
@@ -199,6 +247,9 @@ function setListeners() {
     });
 
     window.addEventListener('resize', autoscale);
+    document.addEventListener('fullscreenchange', autoscale);
+
+    document.getElementById('fullscreen-btn')?.addEventListener('click', toggleFullscreen);
 
     initKbdListeners();
 }
@@ -241,6 +292,7 @@ async function init() {
 
     window.libmidi = new LibMidi(createUnlockingAudioContext());
     await window.libmidi.init();
+
     window.libmidi.midiPlayer.addEventListener('end-of-media', e => {
         window.evtQueue.queueEvent({kind: 'player-eom', player: e.target});
     })
@@ -342,4 +394,17 @@ async function init() {
 
 }
 
-init();
+
+init().catch(e => {
+    console.error(e);
+
+    if (window.__freej2meDiag) {
+        window.__freej2meDiag.show('Falha ao iniciar o emulador', e);
+        return;
+    }
+
+    const loading = document.getElementById('loading');
+    if (loading) {
+        loading.textContent = 'Error: ' + (e && e.message ? e.message : e);
+    }
+});
