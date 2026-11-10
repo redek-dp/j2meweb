@@ -2,12 +2,19 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>freej2me-web</title>
+    <script src="src/diagnostics.js" data-watch-startup></script>
 </head>
 <style>
     html, body {
         height: 100%;
+    }
+    /* avoid the mobile browser toolbar cutting off the keypad */
+    @supports (height: 100dvh) {
+        html, body {
+            height: 100dvh;
+        }
     }
     body {
         margin: 0;
@@ -161,6 +168,7 @@
     body.kbd-portrait #right-keys {
         width: 50%;
         height: 220px;
+        padding-bottom: calc(8px + env(safe-area-inset-bottom));
     }
 
     body.kbd-landscape #left-keys,
@@ -184,12 +192,42 @@
         right: 220px;
     }
 
+    #fullscreen-btn {
+        display: none;
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        z-index: 10;
+        width: 44px;
+        height: 44px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #555;
+        border-radius: 8px;
+        background-color: rgba(34, 34, 34, 0.85);
+        color: #e0e0e0;
+        font-size: 22px;
+        line-height: 1;
+        cursor: pointer;
+        touch-action: manipulation;
+    }
+
+    #fullscreen-btn:hover {
+        background-color: #3a3a3a;
+    }
+
+    /* desktop only, on mobile the keypad has its own controls */
+    body:not(.kbd-portrait):not(.kbd-landscape) #fullscreen-btn {
+        display: flex;
+    }
+
 </style>
 <body>
     <div id="screen-area">
         <canvas tabindex="0" id="display" style="display: none;"></canvas>
         <div id="loading">Loading...</div>
     </div>
+    <button id="fullscreen-btn" title="Tela cheia" aria-label="Tela cheia">⤢</button>
     <div id="left-keys" class="keypad-part">
         <div class="key-grid left-grid">
             <button data-key="Digit1" class="key">1</button>
